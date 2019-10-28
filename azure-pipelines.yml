@@ -1,0 +1,67 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+trigger:
+  batch: true
+  branches:
+    include:
+    - master
+    - refs/tags/v*
+pr:
+- master
+
+pool:
+  name: Hosted VS2017
+  demands: npm
+
+steps:
+
+- task: Npm@1
+  displayName: 'npm install'
+  inputs:
+    workingDir: modules
+    verbose: false
+
+- script: |
+   curl -L -o linaro.tar.xz https://releases.linaro.org/components/toolchain/binaries/6.2-2016.11/arm-linux-gnueabihf/gcc-linaro-6.2.1-2016.11-i686-mingw32_arm-linux-gnueabihf.tar.xz
+   7z x linaro.tar.xz -y
+   7z x linaro.tar -r -o./ -y
+
+- script: |
+   set linaro=D:/a/1/s/linaro
+   mv ./gcc-linaro-6.2.1-2016.11-i686-mingw32_arm-linux-gnueabihf %linaro%
+   
+   cd build
+   mkdir arm
+   cd arm
+   cmake ../../generate -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE=../../cmake/imx6qwin.cmake -DCMAKE_INSTALL_PREFIX=../../output -DCMAKE_ARM_GCC=%linaro%  -DCMAKE_MAKE_PROGRAM=mingw32-make.exe -DTAGS_VERSION=%BUILD_MAINVERSION%%BUILD_BUILDID%
+   cmake --build ./ --target install --config Release
+   # cp %linaro%/arm-linux-gnueabihf/lib/libstdc++.so.6.0.22 ../../output/
+   cd ../..
+  displayName: 'build arm in windows'
+
+- task: Npm@1
+  displayName: 'npm build for arm'
+  inputs:
+    command: custom
+    workingDir: modules
+    verbose: false
+    customCommand: 'run build'
+
+- task: ArchiveFiles@2
+  displayName: 'Archive output/'
+  inputs:
+    rootFolderOrFile: output/
+    includeRootFolder: false
+    archiveType: tar
+    archiveFile: '$(Build.ArtifactStagingDirectory)/touch-armeabiv7a-$(Build.SourceBranchName).tar.gz'
+
+- task: GitHubRelease@0
+  displayName: 'GitHub release (create)'
+  inputs:
+    gitHubConnection: ga-connect
+    title: ChangeLog
+    addChangeLog: false
+  condition: and(succeeded(), ne(variables['Build.SourceBranch'], 'refs/heads/master'))
+
